@@ -1,6 +1,6 @@
 /***************************************************************************
  *   fheroes2: https://github.com/ihhub/fheroes2                           *
- *   Copyright (C) 2024                                                    *
+ *   Copyright (C) 2024 - 2025                                             *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
@@ -19,6 +19,7 @@
  ***************************************************************************/
 
 #include "ai_battle.h"
+#include "ai_chatgpt.h"
 
 #include <algorithm>
 #include <array>
@@ -612,6 +613,7 @@ void AI::BattlePlanner::battleBegins()
     _numberOfRemainingTurnsWithoutDeaths = MAX_TURNS_WITHOUT_DEATHS;
     _attackerForceNumberOfDead = 0;
     _defenderForceNumberOfDead = 0;
+    _progressLevel = 0;
 }
 
 void AI::BattlePlanner::BattleTurn( Battle::Arena & arena, const Battle::Unit & currentUnit, Battle::Actions & actions )
@@ -621,8 +623,17 @@ void AI::BattlePlanner::BattleTurn( Battle::Arena & arena, const Battle::Unit & 
         return;
     }
 
-    const Battle::Actions plannedActions = planUnitTurn( arena, currentUnit );
+    Battle::Actions plannedActions;
+    if ( AI::ChatGPTBattleAI::Get().isEnabled() ) {
+        plannedActions = AI::ChatGPTBattleAI::Get().planUnitTurn( arena, currentUnit );
+    }
+    else {
+        plannedActions = planUnitTurn( arena, currentUnit );
+    }
     actions.insert( actions.end(), plannedActions.begin(), plannedActions.end() );
+
+    // Increase AI aggressiveness as battle progresses
+    ++_progressLevel;
 }
 
 bool AI::BattlePlanner::isLimitOfTurnsExceeded( const Battle::Arena & arena, Battle::Actions & actions )
@@ -1140,6 +1151,14 @@ void AI::BattlePlanner::analyzeBattleState( const Battle::Arena & arena, const B
     // neutralize his shooters as quickly as possible. A cautious offensive tactics can be chosen only if our army is fighting an enemy army that has limited
     // distance attack capabilities.
     _cautiousOffensive = ( enemyArcherRatio < 0.15 );
+
+    // Switch to more aggressive tactics as the battle goes on
+    if ( _progressLevel > 5 ) {
+        _defensiveTactics = false;
+        if ( _progressLevel > 10 ) {
+            _cautiousOffensive = false;
+        }
+    }
 
     DEBUG_LOG( DBG_BATTLE, DBG_INFO,
                ( _defensiveTactics ? "Defensive" : ( _cautiousOffensive ? "Cautious offensive" : "Offensive" ) )
